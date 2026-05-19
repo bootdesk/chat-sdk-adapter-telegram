@@ -22,6 +22,12 @@ new TelegramAdapter(
 ## thread ID format
 `telegram:{chatId}:{messageId}` — e.g. `telegram:-123456789:9876`
 
+## contracts implemented
+- `HandlesActions` — `parseAction()` for callback queries
+- `HandlesReactions` — `parseReaction()` for message reactions
+- `HandlesSlashCommands` — `parseSlashCommand()` for commands starting with `/`
+- `SupportsEditMessages` / `SupportsDeleteMessages` — edit/delete via Bot API
+
 ## webhook flow
 1. `verifyWebhook` — extracts update from request body
 2. `parseWebhook` — handles messages, callback queries, inline queries; detects private chats as DMs

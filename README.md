@@ -80,6 +80,9 @@ Telegram sends updates via webhook. Verify requests using the `secret_token` par
 
 Supports inline keyboards, bot commands, group chats, and topic forums.
 
+## Documentationn
+Full API documentation: https://bootdesk.github.io/chat-sdk
+
 ## License
 
 MIT

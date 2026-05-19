@@ -11,6 +11,8 @@ use BootDesk\ChatSDK\Core\Contracts\FormatConverter;
 use BootDesk\ChatSDK\Core\Contracts\HandlesActions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesSlashCommands;
+use BootDesk\ChatSDK\Core\Contracts\SupportsDeleteMessages;
+use BootDesk\ChatSDK\Core\Contracts\SupportsEditMessages;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\FetchOptions;
@@ -27,7 +29,7 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands
+class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, SupportsDeleteMessages, SupportsEditMessages
 {
     private const ATTACHMENT_UPLOADS = [
         'audio' => ['field' => 'audio', 'method' => 'sendAudio'],
@@ -116,6 +118,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             'messageId' => $messageId,
             'userId' => (string) ($from['id'] ?? ''),
             'isBot' => $from['is_bot'] ?? false,
+            'isMe' => false,
             'raw' => $body,
             'triggerId' => null,
             'callbackQueryId' => $cq['id'] ?? null,
@@ -192,6 +195,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             'text' => $text,
             'userId' => $from ? (string) ($from['id'] ?? '') : '',
             'isBot' => $from['is_bot'] ?? false,
+            'isMe' => false,
             'channelId' => $channelId,
             'triggerId' => null,
             'raw' => $body,
