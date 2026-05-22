@@ -12,11 +12,11 @@ Requires a PSR-18 HTTP client (`guzzlehttp/guzzle`, `symfony/http-client`, etc.)
 
 ## Configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `bot_token` | Telegram Bot Token (from @BotFather) | `123456:ABC-DEF...` |
-| `http_client` | PSR-18 HTTP client instance | `new GuzzleHttp\Client` |
-| `secret_token` | Webhook secret token | `my-secret...` |
+| Variable       | Description                          | Example                 |
+| -------------- | ------------------------------------ | ----------------------- |
+| `bot_token`    | Telegram Bot Token (from @BotFather) | `123456:ABC-DEF...`     |
+| `http_client`  | PSR-18 HTTP client instance          | `new GuzzleHttp\Client` |
+| `secret_token` | Webhook secret token                 | `my-secret...`          |
 
 ```php
 use BootDesk\ChatSDK\Telegram\TelegramAdapter;
@@ -51,10 +51,10 @@ $adapter->postMessage('telegram:-100123456789:42', 'Topic message');
 
 ## Thread ID Format
 
-| Format | Description |
-|--------|-------------|
-| `telegram:{chatId}` | Direct message or group chat |
-| `telegram:{chatId}:{messageThreadId}` | Topic within a forum |
+| Format                                | Description                  |
+| ------------------------------------- | ---------------------------- |
+| `telegram:{chatId}`                   | Direct message or group chat |
+| `telegram:{chatId}:{messageThreadId}` | Topic within a forum         |
 
 ## Webhook
 
@@ -62,25 +62,26 @@ Telegram sends updates via webhook. Verify requests using the `secret_token` par
 
 ## Feature Matrix
 
-| Feature | Supported |
-|---------|-----------|
-| Post messages | ✓ |
-| Edit messages | ✓ |
-| Delete messages | ✓ |
-| Reactions | ✓ |
-| Typing indicator | ✓ |
-| Fetch messages | ✓ |
-| Fetch thread info | ✓ |
-| Fetch channel info | ✓ |
-| Get user | ✓ |
-| Open DM | ✓ |
-| Stream | ✓ |
+| Feature            | Supported |
+| ------------------ | --------- |
+| Post messages      | ✓         |
+| Edit messages      | ✓         |
+| Delete messages    | ✓         |
+| Reactions          | ✓         |
+| Typing indicator   | ✓         |
+| Fetch messages     | ✓         |
+| Fetch thread info  | ✓         |
+| Fetch channel info | ✓         |
+| Get user           | ✓         |
+| Open DM            | ✓         |
+| Stream             | ✓         |
 
 ## Notes
 
 Supports inline keyboards, bot commands, group chats, and topic forums.
 
 ## Documentationn
+
 Full API documentation: https://bootdesk.github.io/chat-sdk
 
 ## License

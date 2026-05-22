@@ -582,4 +582,47 @@ class TelegramAdapterTest extends TestCase
     {
         $this->assertInstanceOf(HandlesReactions::class, $this->adapter);
     }
+
+    // --- Fixture-based tests from telegram.json ---
+
+    public function test_fixture_bot_mention(): void
+    {
+        $this->adapter->initialize($this->createMock(Chat::class));
+
+        $fixture = json_decode(
+            file_get_contents(__DIR__.'/fixtures/telegram.json'),
+            true
+        );
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream(json_encode($fixture['mention'])));
+
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertSame('133', $message->id);
+        $this->assertSame('@bootdeskchatbot hi', $message->text);
+        $this->assertSame('7527593', $message->author->id);
+        // Telegram uses first_name for display name
+        $this->assertSame('Test User', $message->author->name);
+        $this->assertTrue($message->isDM);
+    }
+
+    public function test_fixture_follow_up_message(): void
+    {
+        $fixture = json_decode(
+            file_get_contents(__DIR__.'/fixtures/telegram.json'),
+            true
+        );
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream(json_encode($fixture['followUp'])));
+
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertSame('134', $message->id);
+        $this->assertSame('how are you', $message->text);
+        $this->assertSame('telegram:7527593', $message->threadId);
+    }
 }

@@ -122,6 +122,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             'raw' => $body,
             'triggerId' => null,
             'callbackQueryId' => $cq['id'] ?? null,
+            'originId' => null,
         ];
     }
 
@@ -270,6 +271,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             'messageId' => (string) $reactionUpdate['message_id'],
             'userId' => $userId,
             'raw' => $update,
+            'originId' => null,
         ];
     }
 
