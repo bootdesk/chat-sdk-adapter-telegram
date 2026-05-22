@@ -11,6 +11,7 @@ use BootDesk\ChatSDK\Core\Contracts\FormatConverter;
 use BootDesk\ChatSDK\Core\Contracts\HandlesActions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesSlashCommands;
+use BootDesk\ChatSDK\Core\Contracts\HasAuthorInfo;
 use BootDesk\ChatSDK\Core\Contracts\SupportsDeleteMessages;
 use BootDesk\ChatSDK\Core\Contracts\SupportsEditMessages;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
@@ -18,6 +19,8 @@ use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\FetchOptions;
 use BootDesk\ChatSDK\Core\FetchResult;
 use BootDesk\ChatSDK\Core\FileUpload;
+use BootDesk\ChatSDK\Core\LocalizationType;
+use BootDesk\ChatSDK\Core\LocalizationValue;
 use BootDesk\ChatSDK\Core\Message;
 use BootDesk\ChatSDK\Core\PostableMessage;
 use BootDesk\ChatSDK\Core\SentMessage;
@@ -29,7 +32,7 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, SupportsDeleteMessages, SupportsEditMessages
+class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, HasAuthorInfo, SupportsDeleteMessages, SupportsEditMessages
 {
     private const ATTACHMENT_UPLOADS = [
         'audio' => ['field' => 'audio', 'method' => 'sendAudio'],
@@ -111,7 +114,18 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
 
         $this->pendingCallbackQueryId = $cq['id'] ?? null;
 
+        $tgLocalizations = [];
+        if (isset($from['language_code'])) {
+            $tgLocalizations[] = new LocalizationValue(LocalizationType::Language, $from['language_code']);
+        }
+
         return [
+            'author' => new Author(
+                ...$tgLocalizations,
+                id: (string) ($from['id'] ?? ''),
+                name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
+                isBot: $from['is_bot'] ?? false,
+            ),
             'actionId' => $actionId,
             'value' => $value,
             'threadId' => $threadId,
@@ -191,7 +205,18 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
 
         $channelId = $chatId !== '' ? "telegram:{$chatId}" : '';
 
+        $tgLocalizations = [];
+        if ($from && isset($from['language_code'])) {
+            $tgLocalizations[] = new LocalizationValue(LocalizationType::Language, $from['language_code']);
+        }
+
         return [
+            'author' => new Author(
+                ...$tgLocalizations,
+                id: $from ? (string) ($from['id'] ?? '') : '',
+                name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
+                isBot: $from['is_bot'] ?? false,
+            ),
             'command' => $cmdText,
             'text' => $text,
             'userId' => $from ? (string) ($from['id'] ?? '') : '',
@@ -256,7 +281,8 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
 
         $chatId = (string) $reactionUpdate['chat']['id'];
         $messageThreadId = $reactionUpdate['message_thread_id'] ?? null;
-        $userId = isset($reactionUpdate['user']) ? (string) $reactionUpdate['user']['id'] : '';
+        $user = $reactionUpdate['user'] ?? [];
+        $userId = isset($user['id']) ? (string) $user['id'] : '';
 
         $threadId = $this->encodeThreadId([
             'chatId' => $chatId,
@@ -264,6 +290,10 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         ]);
 
         return [
+            'author' => new Author(
+                id: $userId,
+                isBot: $user['is_bot'] ?? false,
+            ),
             'emoji' => $emoji,
             'rawEmoji' => $emoji,
             'added' => $added !== null,
@@ -633,6 +663,23 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         return new UserInfo(
             id: (string) $response['id'],
             name: trim(($response['first_name'] ?? '').' '.($response['last_name'] ?? '')),
+        );
+    }
+
+    public function getAuthorInfo(Author $author): Author
+    {
+        $response = $this->apiCall('getChat', ['chat_id' => $author->id]);
+
+        if (($response['type'] ?? '') !== 'private') {
+            return $author;
+        }
+
+        if (! isset($response['language_code'])) {
+            return $author;
+        }
+
+        return $author->withLocalizations(
+            new LocalizationValue(LocalizationType::Language, $response['language_code']),
         );
     }
 
