@@ -121,12 +121,13 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         }
 
         return [
-            'author' => new Author(
-                ...$tgLocalizations,
-                id: (string) ($from['id'] ?? ''),
-                name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
-                isBot: $from['is_bot'] ?? false,
-            ),
+            'author' => (
+                new Author(
+                    id: (string) ($from['id'] ?? ''),
+                    name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
+                    isBot: $from['is_bot'] ?? false,
+                )
+            )->withLocalizations(...$tgLocalizations),
             'actionId' => $actionId,
             'value' => $value,
             'threadId' => $threadId,
@@ -212,12 +213,13 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         }
 
         return [
-            'author' => new Author(
-                ...$tgLocalizations,
-                id: $from ? (string) ($from['id'] ?? '') : '',
-                name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
-                isBot: $from['is_bot'] ?? false,
-            ),
+            'author' => (
+                new Author(
+                    id: $from ? (string) ($from['id'] ?? '') : '',
+                    name: $from ? trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) : null,
+                    isBot: $from['is_bot'] ?? false,
+                )
+            )->withLocalizations(...$tgLocalizations),
             'command' => $cmdText,
             'text' => $text,
             'userId' => $from ? (string) ($from['id'] ?? '') : '',
