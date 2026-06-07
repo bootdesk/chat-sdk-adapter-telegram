@@ -27,6 +27,7 @@ use BootDesk\ChatSDK\Core\PostableMessage;
 use BootDesk\ChatSDK\Core\SentMessage;
 use BootDesk\ChatSDK\Core\ThreadInfo;
 use BootDesk\ChatSDK\Core\UserInfo;
+use BootDesk\ChatSDK\Telegram\Keyboard\ReplyMarkup;
 use Http\Message\MultipartStream\MultipartStreamBuilder;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface;
@@ -478,7 +479,17 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         }
 
         $text = $this->getTextContent($message);
-        $keyboard = $message->isCard() ? TelegramCards::toInlineKeyboard($message->content) : null;
+        $customReplyMarkup = $this->extractReplyMarkup($message);
+        $cardKeyboard = $message->isCard() ? TelegramCards::toInlineKeyboard($message->content) : null;
+        $keyboard = $customReplyMarkup ?? $cardKeyboard;
+
+        if ($message->replyToMessageId !== null) {
+            $params['reply_to_message_id'] = (int) $message->replyToMessageId;
+        }
+
+        if ($customReplyMarkup !== null) {
+            $params['reply_markup'] = $customReplyMarkup;
+        }
 
         // Files (binary upload) take priority — Telegram supports 1 file per message
         if ($message->files !== []) {
@@ -567,6 +578,11 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             'chat_id' => $decoded['chatId'],
             'message_id' => (int) $messageId,
         ];
+
+        $replyMarkup = $this->extractReplyMarkup($message);
+        if ($replyMarkup !== null) {
+            $params['reply_markup'] = $replyMarkup;
+        }
 
         if ($message->attachments !== [] && $message->attachments[0]->type === 'image') {
             $params['caption'] = $text;
@@ -729,6 +745,21 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         }
 
         return $this->postMessage($threadId, PostableMessage::text($fullText));
+    }
+
+    private function extractReplyMarkup(PostableMessage $message): ?array
+    {
+        $value = $message->metadata['reply_markup'] ?? null;
+
+        if ($value instanceof ReplyMarkup) {
+            return $value->toArray();
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        return null;
     }
 
     private function getTextContent(PostableMessage $message): string

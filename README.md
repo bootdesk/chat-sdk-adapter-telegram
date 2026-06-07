@@ -60,25 +60,78 @@ $adapter->postMessage('telegram:-100123456789:42', 'Topic message');
 
 Telegram sends updates via webhook. Verify requests using the `secret_token` parameter set during webhook registration.
 
+## Custom Keyboards
+
+Pass keyboard value objects via `PostableMessage::$metadata['reply_markup']`:
+
+```php
+use BootDesk\ChatSDK\Core\PostableMessage;
+use BootDesk\ChatSDK\Telegram\Keyboard\KeyboardButton;
+use BootDesk\ChatSDK\Telegram\Keyboard\ReplyKeyboardMarkup;
+
+// Custom reply keyboard with location request
+$thread->post(new PostableMessage(
+    content: 'Choose an option:',
+    metadata: [
+        'reply_markup' => new ReplyKeyboardMarkup(
+            keyboard: [
+                [new KeyboardButton('Help')],
+                [new KeyboardButton('Share Location', requestLocation: true)],
+                [new KeyboardButton('Share Contact', requestContact: true)],
+            ],
+            resizeKeyboard: true,
+            oneTimeKeyboard: true,
+        ),
+    ],
+));
+```
+
+### Types
+
+| Value object                    | Telegram API equivalent |
+| ------------------------------- | ----------------------- |
+| `ReplyKeyboardMarkup`           | Custom reply keyboard   |
+| `InlineKeyboardMarkup`          | Inline keyboard (standalone) |
+| `ForceReply`                    | Force reply             |
+| `ReplyKeyboardRemove`           | Remove custom keyboard  |
+| `KeyboardButton`               | text / request_location / request_contact / request_poll / web_app |
+| `InlineKeyboardButton`         | text / callback_data / url / web_app |
+| `WebAppInfo`                   | url |
+
+Metadata `reply_markup` takes precedence over the card-generated inline keyboard. Raw arrays also accepted for power users.
+
+### Reply-to-Message
+
+```php
+$thread->post(new PostableMessage(
+    content: 'Reply to this',
+    replyToMessageId: '42',
+));
+```
+
 ## Feature Matrix
 
-| Feature            | Supported |
-| ------------------ | --------- |
-| Post messages      | ✓         |
-| Edit messages      | ✓         |
-| Delete messages    | ✓         |
-| Reactions          | ✓         |
-| Typing indicator   | ✓         |
-| Fetch messages     | ✓         |
-| Fetch thread info  | ✓         |
-| Fetch channel info | ✓         |
-| Get user           | ✓         |
-| Open DM            | ✓         |
-| Stream             | ✓         |
+| Feature              | Supported |
+| -------------------- | --------- |
+| Post messages        | ✓         |
+| Edit messages        | ✓         |
+| Delete messages      | ✓         |
+| Reactions            | ✓         |
+| Reply keyboards      | ✓         |
+| Inline keyboards     | ✓         |
+| Force reply          | ✓         |
+| Typing indicator     | ✓         |
+| Fetch messages       | ✓         |
+| Fetch thread info    | ✓         |
+| Fetch channel info   | ✓         |
+| Get user             | ✓         |
+| Open DM              | ✓         |
+| Stream               | ✓         |
+| Reply-to-message     | ✓         |
 
 ## Notes
 
-Supports inline keyboards, bot commands, group chats, and topic forums.
+Supports inline keyboards, custom reply keyboards, force reply, bot commands, group chats, and topic forums.
 
 ## Documentationn
 

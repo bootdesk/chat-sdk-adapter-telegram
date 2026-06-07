@@ -8,6 +8,11 @@ use BootDesk\ChatSDK\Core\Chat;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\PostableMessage;
+use BootDesk\ChatSDK\Telegram\Keyboard\ForceReply;
+use BootDesk\ChatSDK\Telegram\Keyboard\InlineKeyboardButton;
+use BootDesk\ChatSDK\Telegram\Keyboard\InlineKeyboardMarkup;
+use BootDesk\ChatSDK\Telegram\Keyboard\KeyboardButton;
+use BootDesk\ChatSDK\Telegram\Keyboard\ReplyKeyboardMarkup;
 use BootDesk\ChatSDK\Telegram\TelegramAdapter;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
@@ -581,6 +586,249 @@ class TelegramAdapterTest extends TestCase
     public function test_implements_handles_reactions(): void
     {
         $this->assertInstanceOf(HandlesReactions::class, $this->adapter);
+    }
+
+    // --- Reply markup and reply-to tests ---
+
+    public function test_post_message_with_reply_to_message_id(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(content: 'Reply this', replyToMessageId: '42'),
+        );
+
+        $this->assertNotNull($captured);
+        $this->assertSame(42, $captured['reply_to_message_id']);
+    }
+
+    public function test_post_message_with_reply_keyboard_markup_in_metadata(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $markup = new ReplyKeyboardMarkup(
+            keyboard: [
+                [new KeyboardButton('A'), new KeyboardButton('B')],
+                [new KeyboardButton('Cancel', requestLocation: true)],
+            ],
+            resizeKeyboard: true,
+            oneTimeKeyboard: true,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(content: 'Pick:', metadata: ['reply_markup' => $markup]),
+        );
+
+        $this->assertNotNull($captured);
+        $rm = json_decode($captured['reply_markup'], true);
+        $this->assertIsArray($rm);
+        $this->assertCount(2, $rm['keyboard']);
+        $this->assertTrue($rm['resize_keyboard']);
+        $this->assertTrue($rm['one_time_keyboard']);
+        $this->assertSame('A', $rm['keyboard'][0][0]['text']);
+        $this->assertTrue($rm['keyboard'][1][0]['request_location']);
+    }
+
+    public function test_post_message_with_raw_array_reply_markup_in_metadata(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(content: 'Go', metadata: [
+                'reply_markup' => ['keyboard' => [[['text' => 'Yes'], ['text' => 'No']]]],
+            ]),
+        );
+
+        $this->assertNotNull($captured);
+        $rm = json_decode($captured['reply_markup'], true);
+        $this->assertSame('Yes', $rm['keyboard'][0][0]['text']);
+        $this->assertSame('No', $rm['keyboard'][0][1]['text']);
+    }
+
+    public function test_post_message_with_force_reply_in_metadata(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(content: 'Reply pls', metadata: [
+                'reply_markup' => new ForceReply(inputFieldPlaceholder: 'Type here...'),
+            ]),
+        );
+
+        $this->assertNotNull($captured);
+        $rm = json_decode($captured['reply_markup'], true);
+        $this->assertTrue($rm['force_reply']);
+        $this->assertSame('Type here...', $rm['input_field_placeholder']);
+    }
+
+    public function test_post_message_with_reply_to_and_keyboard(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'Pick one:',
+                replyToMessageId: '7',
+                metadata: [
+                    'reply_markup' => new ReplyKeyboardMarkup(
+                        keyboard: [[new KeyboardButton('Yes')]],
+                    ),
+                ],
+            ),
+        );
+
+        $this->assertNotNull($captured);
+        $this->assertSame(7, $captured['reply_to_message_id']);
+        $rm = json_decode($captured['reply_markup'], true);
+        $this->assertSame('Yes', $rm['keyboard'][0][0]['text']);
+    }
+
+    public function test_post_message_with_card_and_reply_markup_override(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $card = Card::make()
+            ->header('Choose')
+            ->actions([Button::primary('Go', 'go')]);
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: $card,
+                metadata: [
+                    'reply_markup' => new ReplyKeyboardMarkup(
+                        keyboard: [[new KeyboardButton('Custom')]],
+                    ),
+                ],
+            ),
+        );
+
+        $this->assertNotNull($captured);
+        $rm = json_decode($captured['reply_markup'], true);
+        // Should be the custom reply keyboard, NOT the card's inline keyboard
+        $this->assertArrayHasKey('keyboard', $rm);
+        $this->assertArrayNotHasKey('inline_keyboard', $rm);
+        $this->assertSame('Custom', $rm['keyboard'][0][0]['text']);
+    }
+
+    public function test_edit_message_with_inline_keyboard(): void
+    {
+        $captured = null;
+        $factory = new Psr17Factory;
+        $spy = $this->createSpyClient($factory, function (RequestInterface $request) use (&$captured): void {
+            $captured = json_decode((string) $request->getBody(), true);
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $factory,
+        );
+
+        $markup = new InlineKeyboardMarkup(
+            inlineKeyboard: [
+                [new InlineKeyboardButton('Update', callbackData: 'updated')],
+            ],
+        );
+
+        $adapter->editMessage(
+            'telegram:12345',
+            '99',
+            new PostableMessage(content: 'Edited', metadata: ['reply_markup' => $markup]),
+        );
+
+        $this->assertNotNull($captured);
+        $this->assertArrayHasKey('reply_markup', $captured);
+        $this->assertArrayHasKey('inline_keyboard', $captured['reply_markup']);
+        $this->assertSame('Update', $captured['reply_markup']['inline_keyboard'][0][0]['text']);
+    }
+
+    private function createSpyClient(Psr17Factory $factory, callable $onRequest): ClientInterface
+    {
+        return new class($factory, $onRequest) implements ClientInterface
+        {
+            public function __construct(
+                private Psr17Factory $factory,
+                private \Closure $onRequest,
+            ) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                ($this->onRequest)($request);
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode([
+                        'ok' => true,
+                        'result' => ['message_id' => 100, 'date' => 1700000000],
+                    ]))
+                );
+            }
+        };
     }
 
     // --- Fixture-based tests from telegram.json ---
