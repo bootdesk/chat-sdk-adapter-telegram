@@ -12,6 +12,7 @@ use BootDesk\ChatSDK\Core\Contracts\HandlesActions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
 use BootDesk\ChatSDK\Core\Contracts\HandlesSlashCommands;
 use BootDesk\ChatSDK\Core\Contracts\HasAuthorInfo;
+use BootDesk\ChatSDK\Core\Contracts\MustRehydrateAttachments;
 use BootDesk\ChatSDK\Core\Contracts\RequiresAsyncResponse;
 use BootDesk\ChatSDK\Core\Contracts\SupportsDeleteMessages;
 use BootDesk\ChatSDK\Core\Contracts\SupportsEditMessages;
@@ -34,8 +35,9 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\StreamInterface;
 
-class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, HasAuthorInfo, RequiresAsyncResponse, SupportsDeleteMessages, SupportsEditMessages
+class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, HasAuthorInfo, MustRehydrateAttachments, RequiresAsyncResponse, SupportsDeleteMessages, SupportsEditMessages
 {
     private const ATTACHMENT_UPLOADS = [
         'audio' => ['field' => 'audio', 'method' => 'sendAudio'],
@@ -390,7 +392,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
                 size: $largest['file_size'] ?? null,
                 width: $largest['width'] ?? null,
                 height: $largest['height'] ?? null,
-                fetchData: null,
+                fetchData: [$this, 'fetchMedia'],
                 fetchMetadata: ['file_id' => $largest['file_id']],
             );
         }
@@ -403,6 +405,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
                 name: $document['file_name'] ?? null,
                 mimeType: $document['mime_type'] ?? null,
                 size: $document['file_size'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
                 fetchMetadata: ['file_id' => $document['file_id']],
             );
         }
@@ -417,6 +420,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
                 size: $video['file_size'] ?? null,
                 width: $video['width'] ?? null,
                 height: $video['height'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
                 fetchMetadata: ['file_id' => $video['file_id']],
             );
         }
@@ -429,6 +433,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
                 name: $audio['file_name'] ?? null,
                 mimeType: $audio['mime_type'] ?? null,
                 size: $audio['file_size'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
                 fetchMetadata: ['file_id' => $audio['file_id']],
             );
         }
@@ -437,9 +442,11 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         if ($voice !== null) {
             $attachments[] = new Attachment(
                 type: 'audio',
+                url: null,
                 name: 'voice',
                 mimeType: $voice['mime_type'] ?? null,
                 size: $voice['file_size'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
                 fetchMetadata: ['file_id' => $voice['file_id']],
             );
         }
@@ -841,19 +848,65 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         return is_array($result) ? $result : ['ok' => true];
     }
 
-    protected function apiCall(string $method, array $params): array
+    public function fetchMedia(Attachment $attachment): StreamInterface
+    {
+        $fileId = $attachment->fetchMetadata['file_id'] ?? null;
+
+        if ($fileId === null || $fileId === '') {
+            throw new AdapterException('No file_id available for attachment');
+        }
+
+        $result = $this->apiCall('getFile', ['file_id' => $fileId]);
+        $filePath = $result['file_path'] ?? null;
+
+        if ($filePath === null || $filePath === '') {
+            throw new AdapterException('Telegram API did not return a file path');
+        }
+
+        $downloadUrl = "{$this->apiUrl}/file/bot{$this->botToken}/{$filePath}";
+        $raw = $this->apiCall('', [], 'GET', $downloadUrl, returnStream: true);
+
+        return $raw['stream'];
+    }
+
+    public function rehydrateAttachment(Attachment $attachment): Attachment
+    {
+        $fileId = $attachment->fetchMetadata['file_id'] ?? null;
+
+        if ($fileId === null || $fileId === '') {
+            return $attachment;
+        }
+
+        return $attachment->withFetchOptions(fetchData: [$this, 'fetchMedia'], fetchMetadata: ['file_id' => $fileId]);
+    }
+
+    protected function apiCall(string $method, array $params = [], string $httpMethod = 'POST', ?string $overrideUrl = null, bool $returnStream = false): array
     {
         $factory = $this->psrFactory ?? new Psr17Factory;
-        $url = "{$this->apiUrl}/bot{$this->botToken}/{$method}";
+        $url = $overrideUrl ?? "{$this->apiUrl}/bot{$this->botToken}/{$method}";
 
-        $body = json_encode(array_filter($params, fn ($v): bool => $v !== null));
-        $request = $factory->createRequest('POST', $url)
-            ->withHeader('Content-Type', 'application/json')
-            ->withBody($factory->createStream($body));
+        $request = $factory->createRequest($httpMethod, $url);
+
+        if ($httpMethod !== 'GET') {
+            $body = json_encode(array_filter($params, fn ($v): bool => $v !== null));
+            $request = $request
+                ->withHeader('Content-Type', 'application/json')
+                ->withBody($factory->createStream($body));
+        }
 
         $psrResponse = $this->httpClient->sendRequest($request);
-        $responseBody = (string) $psrResponse->getBody();
+        $statusCode = $psrResponse->getStatusCode();
 
+        if ($statusCode < 200 || $statusCode >= 300) {
+            $responseBody = (string) $psrResponse->getBody();
+            throw new AdapterException("Telegram API returned HTTP {$statusCode}: {$responseBody}");
+        }
+
+        if ($returnStream) {
+            return ['stream' => $psrResponse->getBody(), 'status' => $statusCode];
+        }
+
+        $responseBody = (string) $psrResponse->getBody();
         $data = json_decode($responseBody, true);
 
         if (! is_array($data)) {

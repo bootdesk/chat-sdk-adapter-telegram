@@ -27,6 +27,7 @@ new TelegramAdapter(
 - `HandlesActions` — `parseAction()` for callback queries
 - `HandlesReactions` — `parseReaction()` for message reactions
 - `HandlesSlashCommands` — `parseSlashCommand()` for commands starting with `/`
+- `MustRehydrateAttachments` — restores `Attachment::fetchData` after queue deserialization via `getFile` API + `file/bot<token>` download
 - `SupportsEditMessages` / `SupportsDeleteMessages` — edit/delete via Bot API
 
 ## webhook flow

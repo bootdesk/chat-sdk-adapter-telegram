@@ -2,10 +2,13 @@
 
 namespace BootDesk\ChatSDK\Telegram\Tests;
 
+use BootDesk\ChatSDK\Core\Attachment;
 use BootDesk\ChatSDK\Core\Cards\Button;
 use BootDesk\ChatSDK\Core\Cards\Card;
 use BootDesk\ChatSDK\Core\Chat;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
+use BootDesk\ChatSDK\Core\Contracts\MustRehydrateAttachments;
+use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\PostableMessage;
 use BootDesk\ChatSDK\Telegram\Keyboard\ForceReply;
@@ -19,6 +22,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 class TelegramAdapterTest extends TestCase
 {
@@ -874,5 +878,175 @@ class TelegramAdapterTest extends TestCase
         $this->assertSame('134', $message->id);
         $this->assertSame('how are you', $message->text);
         $this->assertSame('telegram:7527593', $message->threadId);
+    }
+
+    public function test_adapter_implements_must_rehydrate_interface(): void
+    {
+        $this->assertInstanceOf(MustRehydrateAttachments::class, $this->adapter);
+    }
+
+    public function test_attachment_serialize_round_trip(): void
+    {
+        $attachment = new Attachment(
+            type: 'image',
+            url: null,
+            mimeType: 'image/jpeg',
+            fetchData: [$this->adapter, 'fetchMedia'],
+            fetchMetadata: ['file_id' => 'test123'],
+        );
+
+        $restored = unserialize(serialize($attachment));
+
+        $this->assertSame('image', $restored->type);
+        $this->assertNull($restored->url);
+        $this->assertSame('image/jpeg', $restored->mimeType);
+        $this->assertSame(['file_id' => 'test123'], $restored->fetchMetadata);
+        $this->assertNull($restored->fetchData);
+    }
+
+    public function test_rehydrate_restores_fetch_data(): void
+    {
+        $original = new Attachment(
+            type: 'video',
+            url: null,
+            mimeType: 'video/mp4',
+            fetchData: [$this->adapter, 'fetchMedia'],
+            fetchMetadata: ['file_id' => 'test456'],
+        );
+
+        $restored = unserialize(serialize($original));
+        $this->assertNull($restored->fetchData);
+
+        $rehydrated = $this->adapter->rehydrateAttachment($restored);
+
+        $this->assertSame('video', $rehydrated->type);
+        $this->assertSame('video/mp4', $rehydrated->mimeType);
+        $this->assertSame(['file_id' => 'test456'], $rehydrated->fetchMetadata);
+        $this->assertNotNull($rehydrated->fetchData);
+        $this->assertTrue(is_callable($rehydrated->fetchData));
+    }
+
+    public function test_rehydrate_missing_file_id_returns_same(): void
+    {
+        $attachment = new Attachment(
+            type: 'image',
+            url: null,
+            mimeType: 'image/jpeg',
+        );
+
+        $result = $this->adapter->rehydrateAttachment($attachment);
+
+        $this->assertSame($attachment, $result);
+    }
+
+    public function test_fetch_data_must_be_callable_or_null(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('fetchData must be a callable or null');
+
+        new Attachment(
+            type: 'image',
+            url: null,
+            fetchData: 'not-a-callable',
+        );
+    }
+
+    public function test_fetch_media_happy_path(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                if (str_contains((string) $request->getUri(), '/file/bot')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream('telegram-binary-data')
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['file_path' => 'documents/test.txt']]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $attachment = new Attachment(
+            type: 'image',
+            url: null,
+            mimeType: 'image/jpeg',
+            fetchData: [$adapter, 'fetchMedia'],
+            fetchMetadata: ['file_id' => 'test_file_id'],
+        );
+
+        $rehydrated = $adapter->rehydrateAttachment($attachment);
+        $stream = $rehydrated->read();
+
+        $this->assertInstanceOf(StreamInterface::class, $stream);
+        $this->assertSame('telegram-binary-data', (string) $stream);
+    }
+
+    public function test_fetch_media_missing_file_id(): void
+    {
+        $attachment = new Attachment(
+            type: 'image',
+            url: null,
+            fetchData: [$this->adapter, 'fetchMedia'],
+            fetchMetadata: [],
+        );
+
+        $this->expectException(AdapterException::class);
+        $this->expectExceptionMessage('No file_id available for attachment');
+
+        $attachment->read();
+    }
+
+    public function test_fetch_media_http_error(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                if (str_contains((string) $request->getUri(), '/file/bot')) {
+                    return $this->factory->createResponse(403)->withBody(
+                        $this->factory->createStream('Forbidden')
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['file_path' => 'documents/test.txt']]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $attachment = new Attachment(
+            type: 'image',
+            url: null,
+            fetchData: [$adapter, 'fetchMedia'],
+            fetchMetadata: ['file_id' => 'test_file_id'],
+        );
+
+        $rehydrated = $adapter->rehydrateAttachment($attachment);
+
+        $this->expectException(AdapterException::class);
+        $this->expectExceptionMessage('Telegram API returned HTTP 403');
+
+        $rehydrated->read();
     }
 }
