@@ -559,13 +559,12 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         $params['parse_mode'] = $parseMode;
 
         if (! $message->isCard()) {
-            $params['text'] = $this->formatConverter->escapeMarkdownV2($params['text']);
+            $params['text'] = $this->formatConverter->convertMarkdown($params['text']);
         }
 
         if ($keyboard !== null) {
             $params['reply_markup'] = json_encode($keyboard);
         }
-
         $response = $this->apiCall('sendMessage', $params);
 
         return new SentMessage(
@@ -598,7 +597,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
             $params['text'] = $text;
             $params['parse_mode'] = $parseMode;
             if (! $message->isCard()) {
-                $params['text'] = $this->formatConverter->escapeMarkdownV2($params['text']);
+                $params['text'] = $this->formatConverter->convertMarkdown($params['text']);
             }
             $response = $this->apiCall('editMessageText', $params);
         }
