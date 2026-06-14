@@ -25,6 +25,7 @@ use BootDesk\ChatSDK\Core\LocalizationValue;
 use BootDesk\ChatSDK\Core\Message;
 use BootDesk\ChatSDK\Core\PostableMessage;
 use BootDesk\ChatSDK\Core\SentMessage;
+use BootDesk\ChatSDK\Core\Support\EmojiResolver;
 use BootDesk\ChatSDK\Core\ThreadInfo;
 use BootDesk\ChatSDK\Core\UserInfo;
 use BootDesk\ChatSDK\Telegram\Keyboard\ReplyMarkup;
@@ -49,15 +50,19 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
 
     protected ?string $secretToken;
 
+    protected EmojiResolver $emojiResolver;
+
     public function __construct(
         protected readonly string $botToken,
         protected readonly ClientInterface $httpClient,
         ?string $secretToken = null,
         protected readonly string $apiUrl = 'https://api.telegram.org',
         protected readonly ?Psr17Factory $psrFactory = null,
+        ?EmojiResolver $emojiResolver = null,
     ) {
         $this->secretToken = $secretToken;
         $this->formatConverter = new TelegramFormatConverter;
+        $this->emojiResolver = $emojiResolver ?? EmojiResolver::default();
     }
 
     public function getName(): string
@@ -298,7 +303,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
                 id: $userId,
                 isBot: $user['is_bot'] ?? false,
             ),
-            'emoji' => $emoji,
+            'emoji' => $this->emojiResolver->fromGChat($emoji),
             'rawEmoji' => $emoji,
             'added' => $added !== null,
             'threadId' => $threadId,
@@ -619,7 +624,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         $this->apiCall('setMessageReaction', [
             'chat_id' => $decoded['chatId'],
             'message_id' => (int) $messageId,
-            'reaction' => [['type' => 'emoji', 'emoji' => $emoji]],
+            'reaction' => [['type' => 'emoji', 'emoji' => $this->emojiResolver->toGChat($emoji)]],
         ]);
     }
 

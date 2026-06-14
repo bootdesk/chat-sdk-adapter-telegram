@@ -546,7 +546,8 @@ class TelegramAdapterTest extends TestCase
         $result = $this->adapter->parseReaction($request);
 
         $this->assertNotNull($result);
-        $this->assertSame('👍', $result['emoji']);
+        $this->assertSame('thumbs_up', $result['emoji']);
+        $this->assertSame('👍', $result['rawEmoji']);
         $this->assertTrue($result['added']);
     }
 
@@ -569,7 +570,8 @@ class TelegramAdapterTest extends TestCase
         $result = $this->adapter->parseReaction($request);
 
         $this->assertNotNull($result);
-        $this->assertSame('👍', $result['emoji']);
+        $this->assertSame('thumbs_up', $result['emoji']);
+        $this->assertSame('👍', $result['rawEmoji']);
         $this->assertFalse($result['added']);
     }
 
