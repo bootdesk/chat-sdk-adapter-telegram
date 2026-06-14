@@ -162,13 +162,13 @@ class TelegramFormatConverterTest extends TestCase
     public function test_unordered_list(): void
     {
         $result = $this->converter->convertMarkdown("- item1\n- item2");
-        $this->assertSame("- item1\n- item2", $result);
+        $this->assertSame("\\- item1\n\\- item2", $result);
     }
 
     public function test_ordered_list(): void
     {
         $result = $this->converter->convertMarkdown("1. one\n2. two");
-        $this->assertSame("1. one\n2. two", $result);
+        $this->assertSame("1\\. one\n2\\. two", $result);
     }
 
     public function test_paragraphs_separated(): void

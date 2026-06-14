@@ -150,10 +150,10 @@ class TelegramFormatConverter extends BaseFormatConverter
                     case 'League\CommonMark\Extension\CommonMark\Node\Block\ListItem':
                         $listInfo = $listStack !== [] ? $listStack[array_key_last($listStack)] : null;
                         if ($listInfo !== null && $listInfo['type'] === 'ordered') {
-                            $output .= "{$listInfo['counter']}. ";
+                            $output .= "{$listInfo['counter']}\\. ";
                             $listStack[array_key_last($listStack)]['counter']++;
                         } else {
-                            $output .= '- ';
+                            $output .= '\\- ';
                         }
                         break;
 
