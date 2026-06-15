@@ -18,6 +18,7 @@ use BootDesk\ChatSDK\Core\Contracts\SupportsDeleteMessages;
 use BootDesk\ChatSDK\Core\Contracts\SupportsEditMessages;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
+use BootDesk\ChatSDK\Core\Exceptions\UnsupportedOperationException;
 use BootDesk\ChatSDK\Core\FetchOptions;
 use BootDesk\ChatSDK\Core\FetchResult;
 use BootDesk\ChatSDK\Core\FileUpload;
@@ -338,7 +339,7 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         }
 
         if ($tgMessage === null) {
-            throw new AdapterException('No message found in Telegram update');
+            throw new UnsupportedOperationException('No message found in Telegram update');
         }
 
         $chatId = (string) $tgMessage['chat']['id'];
