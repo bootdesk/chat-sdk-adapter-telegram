@@ -101,9 +101,13 @@ class TelegramFormatConverter extends BaseFormatConverter
                         break;
 
                     case 'League\CommonMark\Extension\CommonMark\Node\Inline\Strong':
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\Heading':
                         $output .= '*';
                         $closeStack[] = '*';
+                        break;
+
+                    case 'League\CommonMark\Extension\CommonMark\Node\Block\Heading':
+                        $output .= '__';
+                        $closeStack[] = '__';
                         break;
 
                     case 'League\CommonMark\Extension\CommonMark\Node\Inline\Emphasis':
@@ -135,7 +139,7 @@ class TelegramFormatConverter extends BaseFormatConverter
                         break;
 
                     case 'League\CommonMark\Extension\CommonMark\Node\Block\ThematicBreak':
-                        $output .= "---\n";
+                        $output .= "\\-\\-\\-\n";
                         break;
 
                     case 'League\CommonMark\Extension\CommonMark\Node\Block\ListBlock':

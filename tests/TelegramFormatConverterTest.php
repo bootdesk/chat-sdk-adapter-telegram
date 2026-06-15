@@ -181,7 +181,7 @@ class TelegramFormatConverterTest extends TestCase
     public function test_thematic_break(): void
     {
         $result = $this->converter->convertMarkdown("text\n\n---\n\nmore");
-        $this->assertStringContainsString('---', $result);
+        $this->assertStringContainsString('\-', $result);
     }
 
     public function test_newline_in_paragraph(): void
@@ -199,7 +199,7 @@ class TelegramFormatConverterTest extends TestCase
     public function test_convert_markdown_heading(): void
     {
         $result = $this->converter->convertMarkdown('# Hello');
-        $this->assertSame('*Hello*', $result);
+        $this->assertSame('__Hello__', $result);
     }
 
     public function test_fenced_code_no_trailing_extra_newline(): void
