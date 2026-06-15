@@ -8,9 +8,11 @@ use BootDesk\ChatSDK\Core\Cards\Card;
 use BootDesk\ChatSDK\Core\Chat;
 use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
 use BootDesk\ChatSDK\Core\Contracts\MustRehydrateAttachments;
+use BootDesk\ChatSDK\Core\Contracts\SupportsEditThread;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\PostableMessage;
+use BootDesk\ChatSDK\Core\ThreadInfo;
 use BootDesk\ChatSDK\Telegram\Keyboard\ForceReply;
 use BootDesk\ChatSDK\Telegram\Keyboard\InlineKeyboardButton;
 use BootDesk\ChatSDK\Telegram\Keyboard\InlineKeyboardMarkup;
@@ -1048,5 +1050,322 @@ class TelegramAdapterTest extends TestCase
         $this->expectExceptionMessage('Telegram API returned HTTP 403');
 
         $rehydrated->read();
+    }
+
+    public function test_fetch_thread_forum_topic(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                if (str_contains((string) $request->getUri(), 'getForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => [
+                                'name' => 'General Discussion',
+                                'icon_custom_emoji_id' => 'emoji123',
+                                'icon_color' => 7323194,
+                            ],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $info = $adapter->fetchThread('telegram:-100123:42');
+
+        $this->assertSame('telegram:-100123:42', $info->id);
+        $this->assertSame('-100123', $info->channelId);
+        $this->assertSame('General Discussion', $info->title);
+        $this->assertSame('emoji123', $info->iconCustomEmojiId);
+        $this->assertNull($info->topic);
+        $this->assertNull($info->messageCount);
+        $this->assertNull($info->isArchived);
+    }
+
+    public function test_fetch_thread_regular_chat(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                if (str_contains((string) $request->getUri(), 'getChat')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => [
+                                'id' => -100456,
+                                'title' => 'Project Chat',
+                                'type' => 'supergroup',
+                                'description' => 'For project discussions',
+                            ],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $info = $adapter->fetchThread('telegram:-100456');
+
+        $this->assertSame('telegram:-100456', $info->id);
+        $this->assertSame('-100456', $info->channelId);
+        $this->assertSame('Project Chat', $info->title);
+        $this->assertSame('For project discussions', $info->topic);
+        $this->assertNull($info->iconCustomEmojiId);
+    }
+
+    public function test_fetch_thread_api_error(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                return $this->factory->createResponse(403)->withBody(
+                    $this->factory->createStream('Forbidden')
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $info = $adapter->fetchThread('telegram:-100456');
+
+        $this->assertSame('telegram:-100456', $info->id);
+        $this->assertSame('-100456', $info->channelId);
+        $this->assertNull($info->title);
+        $this->assertNull($info->topic);
+    }
+
+    public function test_edit_thread_forum_topic_title(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                if (str_contains((string) $request->getUri(), 'editForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode(['ok' => true, 'result' => true]))
+                    );
+                }
+
+                if (str_contains((string) $request->getUri(), 'getForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => [
+                                'name' => 'Updated Topic',
+                                'icon_custom_emoji_id' => null,
+                            ],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $updated = $adapter->editThread('telegram:-100123:42', new ThreadInfo(
+            id: 'telegram:-100123:42',
+            channelId: '-100123',
+            title: 'Updated Topic',
+        ));
+
+        $this->assertSame('Updated Topic', $updated->title);
+    }
+
+    public function test_edit_thread_forum_topic_close(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+
+                if (str_contains($uri, 'closeForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode(['ok' => true, 'result' => true]))
+                    );
+                }
+
+                if (str_contains($uri, 'getForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => ['name' => 'My Topic', 'icon_custom_emoji_id' => null],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $updated = $adapter->editThread('telegram:-100123:42', new ThreadInfo(
+            id: 'telegram:-100123:42',
+            channelId: '-100123',
+            isArchived: true,
+        ));
+
+        $this->assertSame('My Topic', $updated->title);
+    }
+
+    public function test_edit_thread_forum_topic_reopen(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+
+                if (str_contains($uri, 'reopenForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode(['ok' => true, 'result' => true]))
+                    );
+                }
+
+                if (str_contains($uri, 'getForumTopic')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => ['name' => 'My Topic', 'icon_custom_emoji_id' => null],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $updated = $adapter->editThread('telegram:-100123:42', new ThreadInfo(
+            id: 'telegram:-100123:42',
+            channelId: '-100123',
+            isArchived: false,
+        ));
+
+        $this->assertSame('My Topic', $updated->title);
+    }
+
+    public function test_edit_thread_regular_chat_title(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+
+                if (str_contains($uri, 'setChatTitle')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode(['ok' => true, 'result' => true]))
+                    );
+                }
+
+                if (str_contains($uri, 'getChat')) {
+                    return $this->factory->createResponse(200)->withBody(
+                        $this->factory->createStream(json_encode([
+                            'ok' => true,
+                            'result' => [
+                                'id' => -100456,
+                                'title' => 'Renamed Group',
+                                'description' => 'My group',
+                            ],
+                        ]))
+                    );
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => []]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $updated = $adapter->editThread('telegram:-100456', new ThreadInfo(
+            id: 'telegram:-100456',
+            channelId: '-100456',
+            title: 'Renamed Group',
+        ));
+
+        $this->assertSame('Renamed Group', $updated->title);
+        $this->assertSame('My group', $updated->topic);
+    }
+
+    public function test_supports_edit_thread_interface(): void
+    {
+        $this->assertInstanceOf(SupportsEditThread::class, $this->adapter);
     }
 }

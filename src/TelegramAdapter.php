@@ -7,15 +7,12 @@ use BootDesk\ChatSDK\Core\Author;
 use BootDesk\ChatSDK\Core\ChannelInfo;
 use BootDesk\ChatSDK\Core\Chat;
 use BootDesk\ChatSDK\Core\Contracts\Adapter;
+use BootDesk\ChatSDK\Core\Contracts\CompositeInterfaces\HandlesInteractions;
+use BootDesk\ChatSDK\Core\Contracts\CompositeInterfaces\SupportsMessageMutability;
 use BootDesk\ChatSDK\Core\Contracts\FormatConverter;
-use BootDesk\ChatSDK\Core\Contracts\HandlesActions;
-use BootDesk\ChatSDK\Core\Contracts\HandlesReactions;
-use BootDesk\ChatSDK\Core\Contracts\HandlesSlashCommands;
 use BootDesk\ChatSDK\Core\Contracts\HasAuthorInfo;
 use BootDesk\ChatSDK\Core\Contracts\MustRehydrateAttachments;
 use BootDesk\ChatSDK\Core\Contracts\RequiresAsyncResponse;
-use BootDesk\ChatSDK\Core\Contracts\SupportsDeleteMessages;
-use BootDesk\ChatSDK\Core\Contracts\SupportsEditMessages;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
 use BootDesk\ChatSDK\Core\Exceptions\UnsupportedOperationException;
@@ -38,7 +35,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 
-class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, HandlesSlashCommands, HasAuthorInfo, MustRehydrateAttachments, RequiresAsyncResponse, SupportsDeleteMessages, SupportsEditMessages
+class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, MustRehydrateAttachments, RequiresAsyncResponse, SupportsMessageMutability
 {
     private const ATTACHMENT_UPLOADS = [
         'audio' => ['field' => 'audio', 'method' => 'sendAudio'],
@@ -675,10 +672,107 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
     public function fetchThread(string $threadId): ThreadInfo
     {
         $decoded = $this->decodeThreadId($threadId);
+        $chatId = $decoded['chatId'];
+        $messageThreadId = $decoded['messageThreadId'];
+
+        try {
+            if ($messageThreadId !== null) {
+                $topic = $this->apiCall('getForumTopic', [
+                    'chat_id' => $chatId,
+                    'message_thread_id' => (int) $messageThreadId,
+                ]);
+
+                return new ThreadInfo(
+                    id: $threadId,
+                    channelId: $chatId,
+                    title: $topic['name'] ?? null,
+                    iconCustomEmojiId: $topic['icon_custom_emoji_id'] ?? null,
+                );
+            }
+
+            $chat = $this->apiCall('getChat', ['chat_id' => $chatId]);
+
+            return new ThreadInfo(
+                id: $threadId,
+                channelId: $chatId,
+                title: $chat['title'] ?? ($chat['username'] ?? null),
+                topic: $chat['description'] ?? null,
+            );
+        } catch (AdapterException) {
+            return new ThreadInfo(
+                id: $threadId,
+                channelId: $chatId,
+            );
+        }
+    }
+
+    public function editThread(string $threadId, ThreadInfo $threadInfo): ThreadInfo
+    {
+        $decoded = $this->decodeThreadId($threadId);
+        $chatId = $decoded['chatId'];
+        $messageThreadId = $decoded['messageThreadId'];
+
+        if ($messageThreadId !== null) {
+            $params = ['chat_id' => $chatId, 'message_thread_id' => (int) $messageThreadId];
+
+            if ($threadInfo->title !== null) {
+                $params['name'] = $threadInfo->title;
+            }
+
+            if ($threadInfo->iconCustomEmojiId !== null) {
+                $params['icon_custom_emoji_id'] = $threadInfo->iconCustomEmojiId;
+            }
+
+            if (count($params) > 2) {
+                $this->apiCall('editForumTopic', $params);
+            }
+
+            if ($threadInfo->isArchived === true) {
+                $this->apiCall('closeForumTopic', [
+                    'chat_id' => $chatId,
+                    'message_thread_id' => (int) $messageThreadId,
+                ]);
+            } elseif ($threadInfo->isArchived === false) {
+                $this->apiCall('reopenForumTopic', [
+                    'chat_id' => $chatId,
+                    'message_thread_id' => (int) $messageThreadId,
+                ]);
+            }
+
+            $topic = $this->apiCall('getForumTopic', [
+                'chat_id' => $chatId,
+                'message_thread_id' => (int) $messageThreadId,
+            ]);
+
+            return new ThreadInfo(
+                id: $threadId,
+                channelId: $chatId,
+                title: $topic['name'] ?? null,
+                iconCustomEmojiId: $topic['icon_custom_emoji_id'] ?? null,
+            );
+        }
+
+        if ($threadInfo->title !== null) {
+            $this->apiCall('setChatTitle', [
+                'chat_id' => $chatId,
+                'title' => $threadInfo->title,
+            ]);
+        }
+
+        if ($threadInfo->topic !== null) {
+            $this->apiCall('setChatDescription', [
+                'chat_id' => $chatId,
+                'description' => $threadInfo->topic,
+            ]);
+        }
+
+        $chat = $this->apiCall('getChat', ['chat_id' => $chatId]);
 
         return new ThreadInfo(
             id: $threadId,
-            channelId: $decoded['chatId'],
+            channelId: $chatId,
+            title: $chat['title'] ?? ($chat['username'] ?? null),
+            topic: $chat['description'] ?? null,
         );
     }
 
