@@ -118,8 +118,12 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
         $actionId = $decoded['actionId'] ?? 'telegram_callback';
         $value = is_string($decoded['value'] ?? null) ? $decoded['value'] : null;
 
+        $messageThreadId = $message['message_thread_id'] ?? null;
         $messageId = "{$chatId}:{$message['message_id']}";
-        $threadId = "telegram:{$chatId}";
+        $threadId = $this->encodeThreadId([
+            'chatId' => $chatId,
+            'messageThreadId' => $messageThreadId,
+        ]);
         $from = $cq['from'] ?? [];
 
         $this->pendingCallbackQueryId = $cq['id'] ?? null;
@@ -649,10 +653,16 @@ class TelegramAdapter implements Adapter, HandlesActions, HandlesReactions, Hand
     public function startTyping(string $threadId): void
     {
         $decoded = $this->decodeThreadId($threadId);
-        $this->apiCall('sendChatAction', [
+        $params = [
             'chat_id' => $decoded['chatId'],
             'action' => 'typing',
-        ]);
+        ];
+
+        if ($decoded['messageThreadId'] !== null) {
+            $params['message_thread_id'] = (int) $decoded['messageThreadId'];
+        }
+
+        $this->apiCall('sendChatAction', $params);
     }
 
     public function fetchMessages(string $threadId, ?FetchOptions $options = null): FetchResult

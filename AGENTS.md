@@ -21,7 +21,7 @@ new TelegramAdapter(
 ```
 
 ## thread ID format
-`telegram:{chatId}:{messageId}` — e.g. `telegram:-123456789:9876`
+`telegram:{chatId}` or `telegram:{chatId}:{messageThreadId}` (forum topic) — e.g. `telegram:-123456789` / `telegram:-123456789:9876`
 
 ## contracts implemented
 - `HandlesActions` — `parseAction()` for callback queries
