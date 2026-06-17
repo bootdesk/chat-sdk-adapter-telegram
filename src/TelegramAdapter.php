@@ -388,8 +388,6 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             $largest = $photo[count($photo) - 1];
             $attachments[] = new Attachment(
                 type: 'image',
-                url: null,
-                name: null,
                 mimeType: 'image/jpeg',
                 size: $largest['file_size'] ?? null,
                 width: $largest['width'] ?? null,
@@ -403,7 +401,6 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         if ($document !== null) {
             $attachments[] = new Attachment(
                 type: 'file',
-                url: null,
                 name: $document['file_name'] ?? null,
                 mimeType: $document['mime_type'] ?? null,
                 size: $document['file_size'] ?? null,
@@ -416,7 +413,6 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         if ($video !== null) {
             $attachments[] = new Attachment(
                 type: 'video',
-                url: null,
                 name: $video['file_name'] ?? null,
                 mimeType: $video['mime_type'] ?? null,
                 size: $video['file_size'] ?? null,
@@ -431,7 +427,6 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         if ($audio !== null) {
             $attachments[] = new Attachment(
                 type: 'audio',
-                url: null,
                 name: $audio['file_name'] ?? null,
                 mimeType: $audio['mime_type'] ?? null,
                 size: $audio['file_size'] ?? null,
@@ -444,7 +439,6 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         if ($voice !== null) {
             $attachments[] = new Attachment(
                 type: 'audio',
-                url: null,
                 name: 'voice',
                 mimeType: $voice['mime_type'] ?? null,
                 size: $voice['file_size'] ?? null,
