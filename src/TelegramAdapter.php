@@ -474,7 +474,9 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
 
     public function channelIdFromThreadId(string $threadId): string
     {
-        return $this->decodeThreadId($threadId)['chatId'];
+        $decoded = $this->decodeThreadId($threadId);
+
+        return "telegram:{$decoded['chatId']}";
     }
 
     public function postMessage(string $threadId, PostableMessage $message): SentMessage
@@ -772,10 +774,17 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
 
     public function fetchChannelInfo(string $channelId): ?ChannelInfo
     {
-        $response = $this->apiCall('getChat', ['chat_id' => $channelId]);
+        $parts = explode(':', $channelId, 3);
+        $chatId = $parts[1] ?? '';
+
+        if ($chatId === '') {
+            return null;
+        }
+
+        $response = $this->apiCall('getChat', ['chat_id' => $chatId]);
 
         return new ChannelInfo(
-            id: (string) $response['id'],
+            id: "telegram:{$response['id']}",
             name: $response['title'] ?? ($response['username'] ?? ''),
             isPrivate: ($response['type'] ?? '') === 'private',
         );
@@ -815,7 +824,7 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
     public function openDM(string $userId): ?string
     {
         // Telegram doesn't need explicit DM opening — just send to user ID
-        return $userId;
+        return $this->encodeThreadId(['chatId' => $userId]);
     }
 
     public function getFormatConverter(): ?FormatConverter

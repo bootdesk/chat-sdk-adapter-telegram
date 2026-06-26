@@ -120,7 +120,7 @@ class TelegramAdapterTest extends TestCase
 
     public function test_channel_id_from_thread(): void
     {
-        $this->assertSame('-100123', $this->adapter->channelIdFromThreadId('telegram:-100123:42'));
+        $this->assertSame('telegram:-100123', $this->adapter->channelIdFromThreadId('telegram:-100123:42'));
     }
 
     public function test_verify_webhook_valid_token(): void
@@ -427,8 +427,8 @@ class TelegramAdapterTest extends TestCase
             psrFactory: $factory,
         );
 
-        $info = $adapter->fetchChannelInfo('-100123');
-        $this->assertSame('-100123', $info->id);
+        $info = $adapter->fetchChannelInfo('telegram:-100123');
+        $this->assertSame('telegram:-100123', $info->id);
         $this->assertSame('Test Group', $info->name);
         $this->assertFalse($info->isPrivate);
     }
@@ -440,9 +440,9 @@ class TelegramAdapterTest extends TestCase
         $this->assertSame('John Doe', $user->name);
     }
 
-    public function test_open_dm_returns_user_id(): void
+    public function test_open_dm_returns_thread_id(): void
     {
-        $this->assertSame('999', $this->adapter->openDM('999'));
+        $this->assertSame('telegram:999', $this->adapter->openDM('999'));
     }
 
     public function test_get_format_converter(): void
