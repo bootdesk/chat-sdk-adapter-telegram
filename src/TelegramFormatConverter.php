@@ -1,24 +1,45 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BootDesk\ChatSDK\Telegram;
 
 use BootDesk\ChatSDK\Core\Markdown\BaseFormatConverter;
 use BootDesk\ChatSDK\Core\PostableMessage;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramBlockQuoteRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramCodeRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramEmphasisRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramFencedCodeRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramHeadingRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramImageRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramLinkRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramListBlockRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramListItemRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramNewlineRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramParagraphRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramStrikethroughRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramStrongRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramTextRenderer;
+use BootDesk\ChatSDK\Telegram\Renderer\TelegramThematicBreakRenderer;
+use League\CommonMark\Extension\CommonMark\Node\Block\BlockQuote;
 use League\CommonMark\Extension\CommonMark\Node\Block\FencedCode;
+use League\CommonMark\Extension\CommonMark\Node\Block\Heading;
 use League\CommonMark\Extension\CommonMark\Node\Block\ListBlock;
+use League\CommonMark\Extension\CommonMark\Node\Block\ListItem;
+use League\CommonMark\Extension\CommonMark\Node\Block\ThematicBreak;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Code;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Emphasis;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Strong;
+use League\CommonMark\Extension\Strikethrough\Strikethrough;
 use League\CommonMark\Node\Block\Document;
+use League\CommonMark\Node\Block\Paragraph;
+use League\CommonMark\Node\Inline\Newline;
 use League\CommonMark\Node\Inline\Text;
 
 class TelegramFormatConverter extends BaseFormatConverter
 {
-    // MarkdownV2 requires escaping these characters in normal text
-    private const SPECIAL_CHARS = '/([_*[\]()~`>#+\-=|{}.!\\\\])/';
-
-    // Inside code blocks, only ` and \ need escaping
-    private const CODE_SPECIAL_CHARS = '/([`\\\\])/';
-
     public function toAst(string $text): Document
     {
         return $this->parseMarkdown($text);
@@ -26,7 +47,7 @@ class TelegramFormatConverter extends BaseFormatConverter
 
     public function fromAst(Document $ast): string
     {
-        return $this->renderMarkdownV2($ast);
+        return $this->renderMarkdown($ast);
     }
 
     public function renderPostable(PostableMessage $message): string
@@ -64,7 +85,7 @@ class TelegramFormatConverter extends BaseFormatConverter
 
     public function escapeMarkdownV2(string $text): string
     {
-        return preg_replace(self::SPECIAL_CHARS, '\\\\$1', $text);
+        return preg_replace('/([_*[\]()~`>#+\-=|{}.!\\\\])/', '\\\\$1', $text);
     }
 
     public function truncateForTelegram(string $text, int $limit = 4096): string
@@ -79,143 +100,24 @@ class TelegramFormatConverter extends BaseFormatConverter
         return $slice.$ellipsis;
     }
 
-    private function renderMarkdownV2(Document $ast): string
+    protected function registerRenderers(): void
     {
-        $walker = $ast->walker();
-        $output = '';
-        $closeStack = [];
+        parent::registerRenderers();
 
-        /** @var array{type: string, counter: int}[] */
-        $listStack = [];
-
-        while ($event = $walker->next()) {
-            $node = $event->getNode();
-            $entering = $event->isEntering();
-            $class = get_class($node);
-
-            if ($entering) {
-                switch ($class) {
-                    case 'League\CommonMark\Node\Inline\Text':
-                        /** @var Text $node */
-                        $output .= $this->escapeMarkdownV2($node->getLiteral());
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Strong':
-                        $output .= '*';
-                        $closeStack[] = '*';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\Heading':
-                        $output .= '__';
-                        $closeStack[] = '__';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Emphasis':
-                        $output .= '_';
-                        $closeStack[] = '_';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Code':
-                        /** @var Code $node */
-                        $output .= '`'.$this->escapeCodeBlock($node->getLiteral()).'`';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\FencedCode':
-                        /** @var FencedCode $node */
-                        $lang = $node->getInfo() ?? '';
-                        $code = $this->escapeCodeBlock(rtrim($node->getLiteral(), "\n"));
-                        $output .= "```{$lang}\n{$code}\n```";
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Link':
-                        /** @var Link $node */
-                        $output .= '[';
-                        $closeStack[] = ']('.$this->escapeLinkUrl($node->getUrl()).')';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\BlockQuote':
-                        $output .= '> ';
-                        $closeStack[] = '';
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\ThematicBreak':
-                        $output .= "\\-\\-\\-\n";
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\ListBlock':
-                        /** @var ListBlock $node */
-                        $data = $node->getListData();
-                        $listStack[] = [
-                            'type' => $data->type,
-                            'counter' => (int) ($data->start ?? 1),
-                        ];
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\ListItem':
-                        $listInfo = $listStack !== [] ? $listStack[array_key_last($listStack)] : null;
-                        if ($listInfo !== null && $listInfo['type'] === 'ordered') {
-                            $output .= "{$listInfo['counter']}\\. ";
-                            $listStack[array_key_last($listStack)]['counter']++;
-                        } else {
-                            $output .= '\\- ';
-                        }
-                        break;
-
-                    case 'League\CommonMark\Node\Inline\Newline':
-                        $output .= "\n";
-                        break;
-
-                    case 'League\CommonMark\Node\Block\Paragraph':
-                        // Container — content rendered by children
-                        break;
-
-                }
-            } else {
-                switch ($class) {
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Strong':
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Emphasis':
-                    case 'League\CommonMark\Extension\CommonMark\Node\Inline\Link':
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\BlockQuote':
-                        if ($closeStack !== []) {
-                            $output .= array_pop($closeStack);
-                        }
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\Heading':
-                        if ($closeStack !== []) {
-                            $output .= array_pop($closeStack);
-                        }
-                        $output .= "\n\n";
-                        break;
-
-                    case 'League\CommonMark\Node\Block\Paragraph':
-                        if ($listStack === []) {
-                            $output .= "\n\n";
-                        }
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\ListItem':
-                        $output .= "\n";
-                        break;
-
-                    case 'League\CommonMark\Extension\CommonMark\Node\Block\ListBlock':
-                        array_pop($listStack);
-                        $output .= "\n";
-                        break;
-                }
-            }
-        }
-
-        return trim($output);
-    }
-
-    private function escapeCodeBlock(string $text): string
-    {
-        return preg_replace(self::CODE_SPECIAL_CHARS, '\\\\$1', $text);
-    }
-
-    private function escapeLinkUrl(string $url): string
-    {
-        return str_replace([')', '\\'], ['\\)', '\\\\'], $url);
+        $this->addRenderer(Text::class, new TelegramTextRenderer, 10);
+        $this->addRenderer(Strong::class, new TelegramStrongRenderer, 10);
+        $this->addRenderer(Emphasis::class, new TelegramEmphasisRenderer, 10);
+        $this->addRenderer(Strikethrough::class, new TelegramStrikethroughRenderer, 10);
+        $this->addRenderer(Heading::class, new TelegramHeadingRenderer, 10);
+        $this->addRenderer(Link::class, new TelegramLinkRenderer, 10);
+        $this->addRenderer(Image::class, new TelegramImageRenderer, 10);
+        $this->addRenderer(Code::class, new TelegramCodeRenderer, 10);
+        $this->addRenderer(FencedCode::class, new TelegramFencedCodeRenderer, 10);
+        $this->addRenderer(BlockQuote::class, new TelegramBlockQuoteRenderer, 10);
+        $this->addRenderer(ThematicBreak::class, new TelegramThematicBreakRenderer, 10);
+        $this->addRenderer(ListBlock::class, new TelegramListBlockRenderer, 10);
+        $this->addRenderer(ListItem::class, new TelegramListItemRenderer, 10);
+        $this->addRenderer(Paragraph::class, new TelegramParagraphRenderer, 10);
+        $this->addRenderer(Newline::class, new TelegramNewlineRenderer, 10);
     }
 }
