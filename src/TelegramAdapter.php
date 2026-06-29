@@ -42,6 +42,32 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         'file' => ['field' => 'document', 'method' => 'sendDocument'],
         'image' => ['field' => 'photo', 'method' => 'sendPhoto'],
         'video' => ['field' => 'video', 'method' => 'sendVideo'],
+        'sticker' => ['field' => 'sticker', 'method' => 'sendSticker'],
+        'animation' => ['field' => 'animation', 'method' => 'sendAnimation'],
+        'video_note' => ['field' => 'video_note', 'method' => 'sendVideoNote'],
+    ];
+
+    private const NO_CAPTION_METHODS = [
+        'sendSticker',
+        'sendVideoNote',
+    ];
+
+    /** @var array<string, string> MIME type → Telegram API method for binary uploads */
+    private const FILE_UPLOAD_METHODS = [
+        'image/webp' => 'sendSticker',
+        'application/x-tgsticker' => 'sendSticker',
+    ];
+
+    /** @var array<string, string> Telegram API method → multipart field name */
+    private const MULTIPART_FIELDS = [
+        'sendPhoto' => 'photo',
+        'sendAudio' => 'audio',
+        'sendDocument' => 'document',
+        'sendVideo' => 'video',
+        'sendAnimation' => 'animation',
+        'sendVoice' => 'voice',
+        'sendVideoNote' => 'video_note',
+        'sendSticker' => 'sticker',
     ];
 
     protected ?string $botUserId = null;
@@ -447,6 +473,63 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             );
         }
 
+        $sticker = $tgMessage['sticker'] ?? null;
+        if ($sticker !== null) {
+            $isAnimated = $sticker['is_animated'] ?? false;
+            $isVideo = $sticker['is_video'] ?? false;
+
+            $name = match (true) {
+                $isVideo => 'sticker.webm',
+                $isAnimated => 'sticker.tgs',
+                default => 'sticker.webp',
+            };
+
+            $mimeType = match (true) {
+                $isVideo => 'video/webm',
+                $isAnimated => 'application/x-tgsticker',
+                default => 'image/webp',
+            };
+
+            $attachments[] = new Attachment(
+                type: 'sticker',
+                name: $name,
+                mimeType: $mimeType,
+                size: $sticker['file_size'] ?? null,
+                width: $sticker['width'] ?? null,
+                height: $sticker['height'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
+                fetchMetadata: ['file_id' => $sticker['file_id']],
+            );
+        }
+
+        $animation = $tgMessage['animation'] ?? null;
+        if ($animation !== null) {
+            $attachments[] = new Attachment(
+                type: 'animation',
+                name: $animation['file_name'] ?? 'animation.mp4',
+                mimeType: $animation['mime_type'] ?? 'video/mp4',
+                size: $animation['file_size'] ?? null,
+                width: $animation['width'] ?? null,
+                height: $animation['height'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
+                fetchMetadata: ['file_id' => $animation['file_id']],
+            );
+        }
+
+        $videoNote = $tgMessage['video_note'] ?? null;
+        if ($videoNote !== null) {
+            $attachments[] = new Attachment(
+                type: 'video_note',
+                name: 'video_note.mp4',
+                mimeType: 'video/mp4',
+                size: $videoNote['file_size'] ?? null,
+                width: $videoNote['length'] ?? null,
+                height: $videoNote['length'] ?? null,
+                fetchData: [$this, 'fetchMedia'],
+                fetchMetadata: ['file_id' => $videoNote['file_id']],
+            );
+        }
+
         return $attachments;
     }
 
@@ -504,12 +587,13 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         // Files (binary upload) take priority — Telegram supports 1 file per message
         if ($message->files !== []) {
             $file = $message->files[0];
+            $method = self::FILE_UPLOAD_METHODS[$file->mimeType] ?? 'sendDocument';
             $uploadParams = $params;
-            if ($text !== '') {
+            if ($text !== '' && ! in_array($method, self::NO_CAPTION_METHODS, true)) {
                 $uploadParams['caption'] = $text;
                 $uploadParams['parse_mode'] = 'MarkdownV2';
             }
-            $response = $this->apiCallMultipart('sendDocument', $uploadParams, $file);
+            $response = $this->apiCallMultipart($method, $uploadParams, $file);
 
             return new SentMessage(
                 id: (string) $response['message_id'],
@@ -523,7 +607,7 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             $att = $message->attachments[0];
             $upload = self::ATTACHMENT_UPLOADS[$att->type] ?? self::ATTACHMENT_UPLOADS['file'];
             $params[$upload['field']] = $att->url;
-            if ($text !== '') {
+            if ($text !== '' && ! in_array($upload['method'], self::NO_CAPTION_METHODS, true)) {
                 $params['caption'] = $text;
                 $params['parse_mode'] = 'MarkdownV2';
             }
@@ -897,7 +981,8 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         $builder = new MultipartStreamBuilder($this->psrFactory ?? new Psr17Factory);
 
         if ($file instanceof FileUpload) {
-            $builder->addResource('document', $file->data, [
+            $field = self::MULTIPART_FIELDS[$method] ?? 'document';
+            $builder->addResource($field, $file->data, [
                 'filename' => $file->filename,
                 'headers' => ['Content-Type' => $file->mimeType ?? 'application/octet-stream'],
             ]);

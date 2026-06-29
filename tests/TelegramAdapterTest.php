@@ -11,6 +11,7 @@ use BootDesk\ChatSDK\Core\Contracts\MustRehydrateAttachments;
 use BootDesk\ChatSDK\Core\Contracts\SupportsEditThread;
 use BootDesk\ChatSDK\Core\Exceptions\AdapterException;
 use BootDesk\ChatSDK\Core\Exceptions\AuthenticationException;
+use BootDesk\ChatSDK\Core\FileUpload;
 use BootDesk\ChatSDK\Core\PostableMessage;
 use BootDesk\ChatSDK\Core\ThreadInfo;
 use BootDesk\ChatSDK\Telegram\Keyboard\ForceReply;
@@ -1367,5 +1368,453 @@ class TelegramAdapterTest extends TestCase
     public function test_supports_edit_thread_interface(): void
     {
         $this->assertInstanceOf(SupportsEditThread::class, $this->adapter);
+    }
+
+    // -- Incoming sticker/animation/video_note parsing --
+
+    public function test_parse_webhook_static_sticker(): void
+    {
+        $body = json_encode([
+            'update_id' => 10,
+            'message' => [
+                'message_id' => 300,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'sticker' => [
+                    'file_id' => 'sticker_fid_1',
+                    'file_unique_id' => 'unique_1',
+                    'type' => 'regular',
+                    'width' => 512,
+                    'height' => 512,
+                    'is_animated' => false,
+                    'is_video' => false,
+                    'file_size' => 12345,
+                    'emoji' => '😀',
+                    'set_name' => 'TestSet',
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('sticker', $attachment->type);
+        $this->assertSame('sticker.webp', $attachment->name);
+        $this->assertSame('image/webp', $attachment->mimeType);
+        $this->assertSame(12345, $attachment->size);
+        $this->assertSame(512, $attachment->width);
+        $this->assertSame(512, $attachment->height);
+        $this->assertSame(['file_id' => 'sticker_fid_1'], $attachment->fetchMetadata);
+    }
+
+    public function test_parse_webhook_animated_sticker(): void
+    {
+        $body = json_encode([
+            'update_id' => 11,
+            'message' => [
+                'message_id' => 301,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'sticker' => [
+                    'file_id' => 'sticker_fid_2',
+                    'file_unique_id' => 'unique_2',
+                    'type' => 'regular',
+                    'width' => 256,
+                    'height' => 256,
+                    'is_animated' => true,
+                    'is_video' => false,
+                    'file_size' => 67890,
+                    'emoji' => '🎉',
+                    'set_name' => 'AnimSet',
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('sticker.tgs', $attachment->name);
+        $this->assertSame('application/x-tgsticker', $attachment->mimeType);
+        $this->assertSame(67890, $attachment->size);
+        $this->assertSame(256, $attachment->width);
+        $this->assertSame(['file_id' => 'sticker_fid_2'], $attachment->fetchMetadata);
+    }
+
+    public function test_parse_webhook_video_sticker(): void
+    {
+        $body = json_encode([
+            'update_id' => 12,
+            'message' => [
+                'message_id' => 302,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'sticker' => [
+                    'file_id' => 'sticker_fid_3',
+                    'file_unique_id' => 'unique_3',
+                    'type' => 'regular',
+                    'width' => 100,
+                    'height' => 100,
+                    'is_animated' => false,
+                    'is_video' => true,
+                    'file_size' => 99999,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('sticker.webm', $attachment->name);
+        $this->assertSame('video/webm', $attachment->mimeType);
+        $this->assertSame(99999, $attachment->size);
+        $this->assertSame(100, $attachment->width);
+        $this->assertSame(['file_id' => 'sticker_fid_3'], $attachment->fetchMetadata);
+    }
+
+    public function test_parse_webhook_animation(): void
+    {
+        $body = json_encode([
+            'update_id' => 13,
+            'message' => [
+                'message_id' => 303,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'animation' => [
+                    'file_id' => 'anim_fid_1',
+                    'file_unique_id' => 'anim_unique_1',
+                    'file_name' => 'dance.gif',
+                    'mime_type' => 'video/mp4',
+                    'width' => 320,
+                    'height' => 240,
+                    'duration' => 5,
+                    'file_size' => 50000,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('animation', $attachment->type);
+        $this->assertSame('dance.gif', $attachment->name);
+        $this->assertSame('video/mp4', $attachment->mimeType);
+        $this->assertSame(50000, $attachment->size);
+        $this->assertSame(320, $attachment->width);
+        $this->assertSame(240, $attachment->height);
+        $this->assertSame(['file_id' => 'anim_fid_1'], $attachment->fetchMetadata);
+    }
+
+    public function test_parse_webhook_video_note(): void
+    {
+        $body = json_encode([
+            'update_id' => 14,
+            'message' => [
+                'message_id' => 304,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'video_note' => [
+                    'file_id' => 'vn_fid_1',
+                    'file_unique_id' => 'vn_unique_1',
+                    'length' => 240,
+                    'duration' => 4,
+                    'file_size' => 30000,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('video_note', $attachment->type);
+        $this->assertSame('video_note.mp4', $attachment->name);
+        $this->assertSame('video/mp4', $attachment->mimeType);
+        $this->assertSame(30000, $attachment->size);
+        $this->assertSame(240, $attachment->width);
+        $this->assertSame(240, $attachment->height);
+        $this->assertSame(['file_id' => 'vn_fid_1'], $attachment->fetchMetadata);
+    }
+
+    // -- Outgoing sticker/animation/video_note via URL-based attachments --
+
+    public function test_post_message_with_sticker_attachment(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 200, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'caption',
+                attachments: [
+                    new Attachment(type: 'sticker', url: 'file_id_123', name: 'sticker.webp', mimeType: 'image/webp'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendSticker', $mockClient->lastMethod);
+    }
+
+    public function test_post_message_with_animation_attachment(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 201, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'caption',
+                attachments: [
+                    new Attachment(type: 'animation', url: 'file_id_456', name: 'dance.gif', mimeType: 'video/mp4'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendAnimation', $mockClient->lastMethod);
+    }
+
+    public function test_post_message_with_video_note_attachment(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 202, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'caption',
+                attachments: [
+                    new Attachment(type: 'video_note', url: 'file_id_789', name: 'video_note.mp4', mimeType: 'video/mp4'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendVideoNote', $mockClient->lastMethod);
+    }
+
+    public function test_post_message_sticker_omits_caption(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public string $lastBody = '';
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+                $this->lastBody = (string) $request->getBody();
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 203, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'should not appear',
+                attachments: [
+                    new Attachment(type: 'sticker', url: 'file_id_sticker', name: 'sticker.webp', mimeType: 'image/webp'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendSticker', $mockClient->lastMethod);
+        $this->assertStringNotContainsString('caption', $mockClient->lastBody);
+    }
+
+    public function test_post_message_animation_includes_caption(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public string $lastBody = '';
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $this->lastBody = (string) $request->getBody();
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 204, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: 'my caption',
+                attachments: [
+                    new Attachment(type: 'animation', url: 'file_id_anim', name: 'boomerang.mp4', mimeType: 'video/mp4'),
+                ],
+            ),
+        );
+
+        $this->assertStringContainsString('caption', $mockClient->lastBody);
+    }
+
+    public function test_post_message_sticker_file_upload_routes_to_send_sticker(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 205, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: '',
+                files: [
+                    new FileUpload(data: 'sticker-data', filename: 'sticker.webp', mimeType: 'image/webp'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendSticker', $mockClient->lastMethod);
     }
 }

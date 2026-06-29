@@ -88,15 +88,15 @@ $thread->post(new PostableMessage(
 
 ### Types
 
-| Value object                    | Telegram API equivalent |
-| ------------------------------- | ----------------------- |
-| `ReplyKeyboardMarkup`           | Custom reply keyboard   |
-| `InlineKeyboardMarkup`          | Inline keyboard (standalone) |
-| `ForceReply`                    | Force reply             |
-| `ReplyKeyboardRemove`           | Remove custom keyboard  |
-| `KeyboardButton`               | text / request_location / request_contact / request_poll / web_app |
-| `InlineKeyboardButton`         | text / callback_data / url / web_app |
-| `WebAppInfo`                   | url |
+| Value object           | Telegram API equivalent                                            |
+| ---------------------- | ------------------------------------------------------------------ |
+| `ReplyKeyboardMarkup`  | Custom reply keyboard                                              |
+| `InlineKeyboardMarkup` | Inline keyboard (standalone)                                       |
+| `ForceReply`           | Force reply                                                        |
+| `ReplyKeyboardRemove`  | Remove custom keyboard                                             |
+| `KeyboardButton`       | text / request_location / request_contact / request_poll / web_app |
+| `InlineKeyboardButton` | text / callback_data / url / web_app                               |
+| `WebAppInfo`           | url                                                                |
 
 Metadata `reply_markup` takes precedence over the card-generated inline keyboard. Raw arrays also accepted for power users.
 
@@ -111,23 +111,26 @@ $thread->post(new PostableMessage(
 
 ## Feature Matrix
 
-| Feature              | Supported |
-| -------------------- | --------- |
-| Post messages        | ✓         |
-| Edit messages        | ✓         |
-| Delete messages      | ✓         |
-| Reactions            | ✓         |
-| Reply keyboards      | ✓         |
-| Inline keyboards     | ✓         |
-| Force reply          | ✓         |
-| Typing indicator     | ✓         |
-| Fetch messages       | ✓         |
-| Fetch thread info    | ✓         |
-| Fetch channel info   | ✓         |
-| Get user             | ✓         |
-| Open DM              | ✓         |
-| Stream               | ✓         |
-| Reply-to-message     | ✓         |
+| Feature                    | Supported |
+| -------------------------- | --------- |
+| Post messages              | ✓         |
+| Edit messages              | ✓         |
+| Delete messages            | ✓         |
+| Reactions                  | ✓         |
+| Reply keyboards            | ✓         |
+| Inline keyboards           | ✓         |
+| Force reply                | ✓         |
+| Typing indicator           | ✓         |
+| Fetch messages             | ✓         |
+| Fetch thread info          | ✓         |
+| Fetch channel info         | ✓         |
+| Get user                   | ✓         |
+| Open DM                    | ✓         |
+| Stream                     | ✓         |
+| Reply-to-message           | ✓         |
+| Stickers (send/receive)    | ✓         |
+| Animations (send/receive)  | ✓         |
+| Video notes (send/receive) | ✓         |
 
 ## Notes
 
