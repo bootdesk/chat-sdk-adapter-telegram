@@ -1817,4 +1817,248 @@ class TelegramAdapterTest extends TestCase
 
         $this->assertSame('sendSticker', $mockClient->lastMethod);
     }
+
+    // -- Incoming location / venue --
+
+    public function test_parse_location_message(): void
+    {
+        $body = json_encode([
+            'update_id' => 20,
+            'message' => [
+                'message_id' => 400,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'location' => [
+                    'latitude' => 37.7749,
+                    'longitude' => -122.4194,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('location', $attachment->type);
+        $this->assertSame(37.7749, $attachment->lat);
+        $this->assertSame(-122.4194, $attachment->lng);
+        $this->assertNull($attachment->name);
+    }
+
+    public function test_parse_venue_message(): void
+    {
+        $body = json_encode([
+            'update_id' => 21,
+            'message' => [
+                'message_id' => 401,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'venue' => [
+                    'location' => [
+                        'latitude' => 40.7128,
+                        'longitude' => -74.0060,
+                    ],
+                    'title' => 'My Venue',
+                    'address' => '123 Street',
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('location', $attachment->type);
+        $this->assertSame(40.7128, $attachment->lat);
+        $this->assertSame(-74.0060, $attachment->lng);
+        $this->assertSame('My Venue', $attachment->name);
+        $this->assertSame('123 Street', $attachment->address);
+    }
+
+    // -- Outgoing sendLocation / sendVenue --
+
+    public function test_post_message_with_location_attachment(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public ?array $lastParams = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+                $body = (string) $request->getBody();
+                $this->lastParams = json_decode($body, true);
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 300, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: '',
+                attachments: [
+                    Attachment::location(37.7749, -122.4194),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendLocation', $mockClient->lastMethod);
+        $this->assertSame(37.7749, $mockClient->lastParams['latitude']);
+        $this->assertSame(-122.4194, $mockClient->lastParams['longitude']);
+    }
+
+    public function test_post_message_with_venue_attachment(): void
+    {
+        $factory = new Psr17Factory;
+        $mockClient = new class($factory) implements ClientInterface
+        {
+            public ?string $lastMethod = null;
+
+            public ?array $lastParams = null;
+
+            public function __construct(private Psr17Factory $factory) {}
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $uri = (string) $request->getUri();
+                if (preg_match('#/bot[^/]+/([^?\s]+)#', $uri, $m)) {
+                    $this->lastMethod = $m[1];
+                }
+                $body = (string) $request->getBody();
+                $this->lastParams = json_decode($body, true);
+
+                return $this->factory->createResponse(200)->withBody(
+                    $this->factory->createStream(json_encode(['ok' => true, 'result' => ['message_id' => 301, 'date' => 1700000000]]))
+                );
+            }
+        };
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC-DEF',
+            httpClient: $mockClient,
+            psrFactory: $factory,
+        );
+
+        $adapter->postMessage(
+            'telegram:12345',
+            new PostableMessage(
+                content: '',
+                attachments: [
+                    Attachment::location(37.7749, -122.4194, name: 'Golden Gate', address: 'San Francisco'),
+                ],
+            ),
+        );
+
+        $this->assertSame('sendVenue', $mockClient->lastMethod);
+        $this->assertSame('Golden Gate', $mockClient->lastParams['title']);
+        $this->assertSame('San Francisco', $mockClient->lastParams['address']);
+    }
+
+    public function test_parse_contact_message(): void
+    {
+        $body = json_encode([
+            'update_id' => 30,
+            'message' => [
+                'message_id' => 500,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'contact' => [
+                    'phone_number' => '+1234567890',
+                    'first_name' => 'John',
+                    'last_name' => 'Doe',
+                    'vcard' => "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nEND:VCARD",
+                    'user_id' => 12345,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('contact', $attachment->type);
+        $this->assertSame('John Doe', $attachment->name);
+        $this->assertSame('+1234567890', $attachment->fetchMetadata['phone_number']);
+        $this->assertSame('John', $attachment->fetchMetadata['first_name']);
+        $this->assertSame('Doe', $attachment->fetchMetadata['last_name']);
+        $this->assertSame(12345, $attachment->fetchMetadata['user_id']);
+        $this->assertStringStartsWith('data:text/vcard;base64,', $attachment->url);
+    }
+
+    public function test_parse_poll_message(): void
+    {
+        $body = json_encode([
+            'update_id' => 31,
+            'message' => [
+                'message_id' => 501,
+                'chat' => ['id' => 12345, 'type' => 'private'],
+                'from' => ['id' => 999, 'first_name' => 'John', 'is_bot' => false],
+                'date' => 1700000000,
+                'poll' => [
+                    'id' => 'poll_001',
+                    'question' => 'What is your favorite color?',
+                    'options' => [
+                        ['text' => 'Red', 'voter_count' => 10],
+                        ['text' => 'Blue', 'voter_count' => 5],
+                    ],
+                    'is_anonymous' => true,
+                    'type' => 'regular',
+                    'allows_multiple_answers' => false,
+                    'total_voter_count' => 15,
+                ],
+            ],
+        ]);
+
+        $request = $this->factory->createServerRequest('POST', '/webhooks/telegram')
+            ->withHeader('x-telegram-bot-api-secret-token', 'my_secret')
+            ->withBody($this->factory->createStream($body));
+
+        $this->adapter->initialize($this->createMock(Chat::class));
+        $message = $this->adapter->parseWebhook($request);
+
+        $this->assertCount(1, $message->attachments);
+        $attachment = $message->attachments[0];
+        $this->assertSame('poll', $attachment->type);
+        $this->assertSame('What is your favorite color?', $attachment->name);
+        $this->assertSame('poll_001', $attachment->fetchMetadata['poll_id']);
+        $this->assertSame('What is your favorite color?', $attachment->fetchMetadata['question']);
+        $this->assertCount(2, $attachment->fetchMetadata['options']);
+        $this->assertSame('Red', $attachment->fetchMetadata['options'][0]['text']);
+        $this->assertSame('Blue', $attachment->fetchMetadata['options'][1]['text']);
+    }
 }

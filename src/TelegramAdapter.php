@@ -530,6 +530,60 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             );
         }
 
+        $venue = $tgMessage['venue'] ?? null;
+        if ($venue !== null) {
+            $loc = $venue['location'] ?? [];
+            $attachments[] = Attachment::location(
+                lat: (float) ($loc['latitude'] ?? 0),
+                lng: (float) ($loc['longitude'] ?? 0),
+                name: $venue['title'] ?? null,
+                address: $venue['address'] ?? null,
+            );
+        }
+
+        $location = $tgMessage['location'] ?? null;
+        if ($location !== null && ($tgMessage['venue'] ?? null) === null) {
+            $attachments[] = Attachment::location(
+                lat: (float) ($location['latitude'] ?? 0),
+                lng: (float) ($location['longitude'] ?? 0),
+            );
+        }
+
+        $contact = $tgMessage['contact'] ?? null;
+        if ($contact !== null) {
+            $name = trim(($contact['first_name'] ?? '').' '.($contact['last_name'] ?? ''));
+            $vcard = $contact['vcard'] ?? null;
+            $attachments[] = new Attachment(
+                type: 'contact',
+                url: $vcard !== null ? 'data:text/vcard;base64,'.base64_encode($vcard) : null,
+                name: $name ?: null,
+                mimeType: 'text/vcard',
+                fetchMetadata: array_filter([
+                    'phone_number' => $contact['phone_number'] ?? null,
+                    'first_name' => $contact['first_name'] ?? null,
+                    'last_name' => $contact['last_name'] ?? null,
+                    'user_id' => $contact['user_id'] ?? null,
+                ]),
+            );
+        }
+
+        $poll = $tgMessage['poll'] ?? null;
+        if ($poll !== null) {
+            $attachments[] = new Attachment(
+                type: 'poll',
+                name: $poll['question'] ?? null,
+                fetchMetadata: array_filter([
+                    'poll_id' => $poll['id'] ?? null,
+                    'question' => $poll['question'] ?? null,
+                    'options' => $poll['options'] ?? [],
+                    'is_anonymous' => $poll['is_anonymous'] ?? null,
+                    'type' => $poll['type'] ?? null,
+                    'allows_multiple_answers' => $poll['allows_multiple_answers'] ?? null,
+                    'total_voter_count' => $poll['total_voter_count'] ?? null,
+                ]),
+            );
+        }
+
         return $attachments;
     }
 
@@ -600,6 +654,53 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
                 threadId: $threadId,
                 timestamp: isset($response['date']) ? (string) $response['date'] : null,
             );
+        }
+
+        // Location attachment — uses sendLocation or sendVenue (no caption support)
+        if ($message->attachments !== []) {
+            $att = $message->attachments[0];
+            if ($att->type === 'location') {
+                $locParams = $params;
+                $locParams['latitude'] = $att->lat;
+                $locParams['longitude'] = $att->lng;
+
+                if ($att->name !== null) {
+                    $locParams['title'] = $att->name;
+                    $locParams['address'] = $att->address ?? '';
+                    $method = 'sendVenue';
+                } else {
+                    $method = 'sendLocation';
+                }
+
+                if ($keyboard !== null) {
+                    $locParams['reply_markup'] = json_encode($keyboard);
+                }
+
+                $response = $this->apiCall($method, $locParams);
+                $additionalMessages = [];
+
+                if ($text !== '') {
+                    $textParams = $params;
+                    $textParams['text'] = $text;
+                    $textParams['parse_mode'] = 'MarkdownV2';
+                    if ($keyboard !== null) {
+                        $textParams['reply_markup'] = json_encode($keyboard);
+                    }
+                    $textResponse = $this->apiCall('sendMessage', $textParams);
+                    $additionalMessages[] = new SentMessage(
+                        id: (string) $textResponse['message_id'],
+                        threadId: $threadId,
+                        timestamp: isset($textResponse['date']) ? (string) $textResponse['date'] : null,
+                    );
+                }
+
+                return new SentMessage(
+                    id: (string) $response['message_id'],
+                    threadId: $threadId,
+                    timestamp: isset($response['date']) ? (string) $response['date'] : null,
+                    additionalMessages: $additionalMessages,
+                );
+            }
         }
 
         // URL-based attachments (1 per message)
