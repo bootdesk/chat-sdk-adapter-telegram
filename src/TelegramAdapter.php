@@ -34,6 +34,8 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, MustRehydrateAttachments, RequiresAsyncResponse, SupportsMessageMutability
 {
@@ -78,6 +80,8 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
 
     protected EmojiResolver $emojiResolver;
 
+    protected readonly ?LoggerInterface $logger;
+
     public function __construct(
         protected readonly string $botToken,
         protected readonly ClientInterface $httpClient,
@@ -85,7 +89,9 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         protected readonly string $apiUrl = 'https://api.telegram.org',
         protected readonly ?Psr17Factory $psrFactory = null,
         ?EmojiResolver $emojiResolver = null,
+        ?LoggerInterface $logger = null,
     ) {
+        $this->logger = $logger ?? new NullLogger;
         $this->secretToken = $secretToken;
         $this->formatConverter = new TelegramFormatConverter;
         $this->emojiResolver = $emojiResolver ?? EmojiResolver::default();
@@ -350,6 +356,7 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         $update = json_decode($body, true);
 
         if ($update === null) {
+            $this->logger->error('[Telegram] Invalid JSON payload');
             throw new AdapterException('Invalid JSON payload from Telegram');
         }
 
@@ -366,6 +373,7 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         }
 
         if ($tgMessage === null) {
+            $this->logger->warning('[Telegram] No message found in update');
             throw new UnsupportedOperationException('No message found in Telegram update');
         }
 
@@ -387,6 +395,13 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         ]);
 
         $isDM = ($tgMessage['chat']['type'] ?? '') === 'private';
+
+        $this->logger->info('[Telegram] Message parsed', [
+            'chatId' => $chatId,
+            'messageId' => $messageId,
+            'isDM' => $isDM,
+            'text_preview' => mb_substr($text, 0, 100),
+        ]);
 
         return new Message(
             id: $messageId,
@@ -619,6 +634,15 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
     public function postMessage(string $threadId, PostableMessage $message): SentMessage
     {
         $decoded = $this->decodeThreadId($threadId);
+
+        $this->logger->info('[Telegram] Posting message', [
+            'chatId' => $decoded['chatId'],
+            'has_files' => $message->files !== [] ? 'yes' : 'no',
+            'has_attachments' => $message->attachments !== [] ? 'yes' : 'no',
+            'is_card' => $message->isCard() ? 'yes' : 'no',
+            'text_preview' => mb_substr($message->getTextContent(), 0, 100),
+        ]);
+
         $params = ['chat_id' => $decoded['chatId']];
 
         if ($decoded['messageThreadId'] !== null) {
@@ -1179,6 +1203,12 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
         $factory = $this->psrFactory ?? new Psr17Factory;
         $url = $overrideUrl ?? "{$this->apiUrl}/bot{$this->botToken}/{$method}";
 
+        $this->logger->debug('[Telegram] API call', [
+            'method' => $method,
+            'httpMethod' => $httpMethod,
+            'url' => $url,
+        ]);
+
         $request = $factory->createRequest($httpMethod, $url);
 
         if ($httpMethod !== 'GET') {
@@ -1193,6 +1223,11 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
 
         if ($statusCode < 200 || $statusCode >= 300) {
             $responseBody = (string) $psrResponse->getBody();
+            $this->logger->error('[Telegram] API error', [
+                'method' => $method,
+                'statusCode' => $statusCode,
+                'response' => mb_substr($responseBody, 0, 500),
+            ]);
             throw new AdapterException("Telegram API returned HTTP {$statusCode}: {$responseBody}");
         }
 
