@@ -401,6 +401,7 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             'messageId' => $messageId,
             'isDM' => $isDM,
             'text_preview' => mb_substr($text, 0, 100),
+            'body' => mb_substr($body, 0, 500),
         ]);
 
         return new Message(
