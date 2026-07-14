@@ -2061,4 +2061,114 @@ class TelegramAdapterTest extends TestCase
         $this->assertSame('Red', $attachment->fetchMetadata['options'][0]['text']);
         $this->assertSame('Blue', $attachment->fetchMetadata['options'][1]['text']);
     }
+
+    // --- GET query params tests ---
+
+    public function test_api_call_get_with_params_appends_query_string(): void
+    {
+        $capturedUri = null;
+        $spy = $this->createSpyClient($this->factory, function (RequestInterface $request) use (&$capturedUri): void {
+            $capturedUri = (string) $request->getUri();
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $this->factory,
+        );
+
+        $apiCall = \Closure::bind(
+            fn (string $method, array $params = [], string $httpMethod = 'POST') => $this->apiCall($method, $params, $httpMethod),
+            $adapter,
+            TelegramAdapter::class,
+        );
+
+        $apiCall('getUpdates', ['offset' => 100, 'limit' => 50], 'GET');
+
+        $this->assertNotNull($capturedUri);
+        $this->assertStringContainsString('getUpdates', $capturedUri);
+        $this->assertStringContainsString('offset=100', $capturedUri);
+        $this->assertStringContainsString('limit=50', $capturedUri);
+    }
+
+    public function test_api_call_get_without_params_no_query_string(): void
+    {
+        $capturedUri = null;
+        $spy = $this->createSpyClient($this->factory, function (RequestInterface $request) use (&$capturedUri): void {
+            $capturedUri = (string) $request->getUri();
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $this->factory,
+        );
+
+        $apiCall = \Closure::bind(
+            fn (string $method, array $params = [], string $httpMethod = 'POST') => $this->apiCall($method, $params, $httpMethod),
+            $adapter,
+            TelegramAdapter::class,
+        );
+
+        $apiCall('getMe', [], 'GET');
+
+        $this->assertNotNull($capturedUri);
+        $this->assertStringNotContainsString('?', $capturedUri);
+    }
+
+    public function test_api_call_get_with_existing_query_uses_ampersand(): void
+    {
+        $capturedUri = null;
+        $spy = $this->createSpyClient($this->factory, function (RequestInterface $request) use (&$capturedUri): void {
+            $capturedUri = (string) $request->getUri();
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $this->factory,
+        );
+
+        $apiCall = \Closure::bind(
+            fn (string $method, array $params = [], string $httpMethod = 'POST', ?string $overrideUrl = null) => $this->apiCall($method, $params, $httpMethod, $overrideUrl),
+            $adapter,
+            TelegramAdapter::class,
+        );
+
+        $apiCall('', ['foo' => 'bar'], 'GET', 'https://api.telegram.org/file/bot123456:ABC/photos/file_0.jpg?token=xyz');
+
+        $this->assertNotNull($capturedUri);
+        $this->assertStringContainsString('?token=xyz', $capturedUri);
+        $this->assertStringContainsString('&foo=bar', $capturedUri);
+    }
+
+    public function test_api_call_post_still_sends_params_as_body(): void
+    {
+        $capturedUri = null;
+        $capturedBody = null;
+        $spy = $this->createSpyClient($this->factory, function (RequestInterface $request) use (&$capturedUri, &$capturedBody): void {
+            $capturedUri = (string) $request->getUri();
+            $capturedBody = (string) $request->getBody();
+        });
+
+        $adapter = new TelegramAdapter(
+            botToken: '123456:ABC',
+            httpClient: $spy,
+            psrFactory: $this->factory,
+        );
+
+        $apiCall = \Closure::bind(
+            fn (string $method, array $params = [], string $httpMethod = 'POST') => $this->apiCall($method, $params, $httpMethod),
+            $adapter,
+            TelegramAdapter::class,
+        );
+
+        $apiCall('sendMessage', ['chat_id' => 12345, 'text' => 'Hello'], 'POST');
+
+        $this->assertNotNull($capturedBody);
+        $body = json_decode($capturedBody, true);
+        $this->assertSame(12345, $body['chat_id']);
+        $this->assertSame('Hello', $body['text']);
+        $this->assertStringNotContainsString('?', $capturedUri);
+    }
 }

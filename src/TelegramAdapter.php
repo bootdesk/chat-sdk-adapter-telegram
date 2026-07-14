@@ -1210,6 +1210,10 @@ class TelegramAdapter implements Adapter, HandlesInteractions, HasAuthorInfo, Mu
             'url' => $url,
         ]);
 
+        if ($httpMethod === 'GET' && $params !== []) {
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($params);
+        }
+
         $request = $factory->createRequest($httpMethod, $url);
 
         if ($httpMethod !== 'GET') {
